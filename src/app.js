@@ -44,7 +44,7 @@ function processEvent(event) {
 							}
 						]
 					});
-
+				console.log(userInfo);
 				apiaiRequest.on('response', (response) => {
 					if (isDefined(response.result)) {
 						let responseText = response.result.fulfillment.speech;
@@ -207,11 +207,12 @@ app.get('/webhook/', function (req, res) {
 app.post('/webhook/', function (req, res) {
 	try {
 		var data = JSONbig.parse(req.body);
-
+		console.log("DATA::", JSON.stringify(data));
 		var messaging_events = data.entry[0].messaging;
 		for (var i = 0; i < messaging_events.length; i++) {
 			var event = data.entry[0].messaging[i];
-			processEvent(event);
+			//processEvent(event);
+			console.log("EVENT::", JSON.stringify(event));
 		}
 		return res.status(200).json({
 			status: "ok"
