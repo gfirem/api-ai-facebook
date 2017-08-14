@@ -11,14 +11,14 @@ const async = require('async');
 const REST_PORT = (process.env.PORT || 5000);
 const FB_TEXT_LIMIT = 640;
 
-const APIAI_ACCESS_TOKEN = process.env.APIAI_ACCESS_TOKEN;
-const APIAI_LANG = process.env.APIAI_LANG || 'en';
-const FB_VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN;
-const FB_PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
-// const APIAI_ACCESS_TOKEN = 'caa55d0a37954abf9e2188849f4a697f';
-// const FB_VERIFY_TOKEN = 'sdfsdfsfsdiu3yriuwhlruilriu43yr8743yrqycrpq834rx';
-// const FB_PAGE_ACCESS_TOKEN = 'EAAVzVTsLNtQBAEhYcIuN7iMqVccIRkSwpZAZChOcpS8Lsnb3SUvNSaVYsW02KYI6q9BZCP5ZBKgcKTip0A88IxY0vvZAtylJV3DDk7ktiCEA4ZAX4UvFzZBCkxIIbgjWtd98nBHhEyRN2q5eaw2L8SXM8P4VZBYlcq1xdR5cHKMEBrzhoBb0qpAu';
-// const APIAI_LANG = 'en';
+// const APIAI_ACCESS_TOKEN = process.env.APIAI_ACCESS_TOKEN;
+// const APIAI_LANG = process.env.APIAI_LANG || 'en';
+// const FB_VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN;
+// const FB_PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
+const APIAI_ACCESS_TOKEN = 'caa55d0a37954abf9e2188849f4a697f';
+const FB_VERIFY_TOKEN = 'sdfsdfsfsdiu3yriuwhlruilriu43yr8743yrqycrpq834rx';
+const FB_PAGE_ACCESS_TOKEN = 'EAAVzVTsLNtQBAEhYcIuN7iMqVccIRkSwpZAZChOcpS8Lsnb3SUvNSaVYsW02KYI6q9BZCP5ZBKgcKTip0A88IxY0vvZAtylJV3DDk7ktiCEA4ZAX4UvFzZBCkxIIbgjWtd98nBHhEyRN2q5eaw2L8SXM8P4VZBYlcq1xdR5cHKMEBrzhoBb0qpAu';
+const APIAI_LANG = 'en';
 
 const FACEBOOK_LOCATION = "FACEBOOK_LOCATION";
 const FACEBOOK_WELCOME = "FACEBOOK_WELCOME";
@@ -485,6 +485,23 @@ class FacebookBot {
 
 }
 
+function userInfoRequest(userId) {
+	return new Promise((resolve, reject) => {
+		request({
+				method: 'GET',
+				uri: "https://graph.facebook.com/v2.6/" + userId + "?fields=first_name,last_name,profile_pic,locale,timezone,gender&access_token=" + FB_PAGE_ACCESS_TOKEN
+			},
+			function (error, response) {
+				if (error) {
+					console.error('Error while userInfoRequest: ', error);
+					reject(error);
+				} else {
+					console.log('userInfoRequest result: ', response.body);
+					resolve(response.body);
+				}
+			});
+	});
+}
 
 let facebookBot = new FacebookBot();
 
@@ -505,65 +522,91 @@ app.get('/webhook/', (req, res) => {
 });
 
 app.post('/webhook/', (req, res) => {
-	try {
-		const data = JSONbig.parse(req.body);
-		console.log("POST::IN");
-		console.log("POST::BODY"+JSON.stringify(data));
-		if (data.entry) {
-			let entries = data.entry;
-			console.log("POST::ENTRIES::" + entries);
-			entries.forEach((entry) => {
-				let messaging_events = entry.messaging;
-				if (messaging_events) {
-					messaging_events.forEach((event) => {
-						console.log("POST::EVENT::" + event);
-						if (event.message && !event.message.is_echo) {
-
-							if (event.message.attachments) {
-								let locations = event.message.attachments.filter(a => a.type === "location");
-
-								// delete all locations from original message
-								event.message.attachments = event.message.attachments.filter(a => a.type !== "location");
-
-								if (locations.length > 0) {
-									locations.forEach(l => {
-										let locationEvent = {
-											sender: event.sender,
-											postback: {
-												payload: "FACEBOOK_LOCATION",
-												data: l.payload.coordinates
+		try {
+			let user_id;
+			const data = JSONbig.parse(req.body);
+			console.log("POST::IN");
+			console.log("POST::BODY" + JSON.stringify(data));
+			if (data.result) {
+				let contexts = data.result.contexts;
+				for (let i = 0; i < contexts.length; i++) {
+					let context = contexts[i];
+					if (context.name === 'generic' && context.parameters.facebook_sender_id) {
+						userInfoRequest(context.parameters.facebook_sender_id)
+							.then((userInfo) => {
+								let apiaiRequest = apiAiService.textRequest(text,
+									{
+										sessionId: data.sessionId,
+										contexts: [
+											{
+												name: "generic",
+												parameters: {
+													facebook_user_name: userInfo.first_name
+												}
 											}
-										};
+										]
+									})
+							});
+					}
+				}
+				if (data.entry) {
+					let entries = data.entry;
+					console.log("POST::ENTRIES::" + entries);
+					entries.forEach((entry) => {
+						let messaging_events = entry.messaging;
+						if (messaging_events) {
+							messaging_events.forEach((event) => {
+								console.log("POST::EVENT::" + event);
+								if (event.message && !event.message.is_echo) {
 
-										facebookBot.processFacebookEvent(locationEvent);
-									});
+									if (event.message.attachments) {
+										let locations = event.message.attachments.filter(a => a.type === "location");
+
+										// delete all locations from original message
+										event.message.attachments = event.message.attachments.filter(a => a.type !== "location");
+
+										if (locations.length > 0) {
+											locations.forEach(l => {
+												let locationEvent = {
+													sender: event.sender,
+													postback: {
+														payload: "FACEBOOK_LOCATION",
+														data: l.payload.coordinates
+													}
+												};
+
+												facebookBot.processFacebookEvent(locationEvent);
+											});
+										}
+									}
+
+									facebookBot.processMessageEvent(event);
+								} else if (event.postback && event.postback.payload) {
+									if (event.postback.payload === "FACEBOOK_WELCOME") {
+										facebookBot.processFacebookEvent(event);
+									} else {
+										facebookBot.processMessageEvent(event);
+									}
 								}
-							}
-
-							facebookBot.processMessageEvent(event);
-						} else if (event.postback && event.postback.payload) {
-							if (event.postback.payload === "FACEBOOK_WELCOME") {
-								facebookBot.processFacebookEvent(event);
-							} else {
-								facebookBot.processMessageEvent(event);
-							}
+							});
 						}
 					});
 				}
+				console.log("POST::OUT");
+				return res.status(200).json({
+					status: "ok"
+				});
+			}
+		}
+		catch (err) {
+			return res.status(400).json({
+				status: "error",
+				error: err
 			});
 		}
-		console.log("POST::OUT");
-		return res.status(200).json({
-			status: "ok"
-		});
-	} catch (err) {
-		return res.status(400).json({
-			status: "error",
-			error: err
-		});
-	}
 
-});
+	}
+);
 
 app.listen(REST_PORT, () => {
 	console.log('Rest service ready on port ' + REST_PORT);
