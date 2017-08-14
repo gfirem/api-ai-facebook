@@ -294,9 +294,32 @@ class FacebookBot {
 		}
 	}
 
-	processMessageEvent(event) {
+	sendApiAiFacebookUser(event){
 		const sender = event.sender.id.toString();
-		const text = this.getEventText(event);
+		const eventObject = this.getFacebookEvent(event);
+
+		if (eventObject) {
+
+			// Handle a text message from this sender
+			if (!this.sessionIds.has(sender)) {
+				this.sessionIds.set(sender, uuid.v4());
+			}
+
+			let apiaiRequest = this.apiAiService.eventRequest(eventObject,
+				{
+					sessionId: this.sessionIds.get(sender),
+					originalRequest: {
+						data: event,
+						source: "facebook"
+					}
+				});
+			this.doApiAiRequest(apiaiRequest, sender);
+		}
+	}
+
+	processMessageEvent(event) {
+		const sender = event.sender;
+		const text = event.text;
 
 		if (text) {
 
@@ -306,18 +329,49 @@ class FacebookBot {
 			}
 
 			console.log("Text", text);
-			//send user's text to api.ai service
-			let apiaiRequest = this.apiAiService.textRequest(text,
-				{
-					sessionId: this.sessionIds.get(sender),
-					originalRequest: {
-						data: event,
-						source: "facebook"
+			this.userInfoRequest(sender).then(
+				(userInfo)=> {
+					userInfo = JSON.parse(userInfo);
+					//send user's text to api.ai service
+					let apiaiRequest = this.apiAiService.textRequest(text,
+						{
+							sessionId: this.sessionIds.get(sender),
+							originalRequest: {
+								data: event,
+								source: "facebook"
+							},
+							contexts: [
+								{
+									name: "generic",
+									parameters: {
+										facebook_user_name: userInfo.first_name
+									}
+								}
+							]
+						});
+
+					this.doApiAiRequest(apiaiRequest, sender);
+				}
+			);
+		}
+	}
+
+	userInfoRequest(userId) {
+		return new Promise((resolve, reject) => {
+			request({
+					method: 'GET',
+					uri: "https://graph.facebook.com/v2.6/" + userId + "?fields=first_name,last_name,profile_pic,locale,timezone,gender&access_token=" + FB_PAGE_ACCESS_TOKEN
+				},
+				function (error, response) {
+					if (error) {
+						console.error('Error while userInfoRequest: ', error);
+						reject(error);
+					} else {
+						console.log('userInfoRequest result: ', response.body);
+						resolve(response.body);
 					}
 				});
-
-			this.doApiAiRequest(apiaiRequest, sender);
-		}
+		});
 	}
 
 	doApiAiRequest(apiaiRequest, sender) {
@@ -485,23 +539,6 @@ class FacebookBot {
 
 }
 
-function userInfoRequest(userId) {
-	return new Promise((resolve, reject) => {
-		request({
-				method: 'GET',
-				uri: "https://graph.facebook.com/v2.6/" + userId + "?fields=first_name,last_name,profile_pic,locale,timezone,gender&access_token=" + FB_PAGE_ACCESS_TOKEN
-			},
-			function (error, response) {
-				if (error) {
-					console.error('Error while userInfoRequest: ', error);
-					reject(error);
-				} else {
-					console.log('userInfoRequest result: ', response.body);
-					resolve(response.body);
-				}
-			});
-	});
-}
 
 let facebookBot = new FacebookBot();
 
@@ -522,50 +559,70 @@ app.get('/webhook/', (req, res) => {
 });
 
 app.post('/webhook/', (req, res) => {
-		try {
-			let user_id;
-			const data = JSONbig.parse(req.body);
-			console.log("POST::IN");
-			console.log("POST::BODY" + JSON.stringify(data));
-			if (data.result) {
-				let contexts = data.result.contexts;
-				for (let i = 0; i < contexts.length; i++) {
-					let context = contexts[i];
-					if (context.name === 'generic' && context.parameters.facebook_sender_id) {
-						userInfoRequest(context.parameters.facebook_sender_id)
-							.then((userInfo) => {
-								let apiaiRequest = apiAiService.textRequest(text,
-									{
-										sessionId: data.sessionId,
-										contexts: [
-											{
-												name: "generic",
-												parameters: {
-													facebook_user_name: userInfo.first_name
-												}
-											}
-										]
-									});
-								this.doApiAiRequest(apiaiRequest, context.parameters.facebook_sender_id);
+	try {
+		const data = JSONbig.parse(req.body);
 
-							});
-					}
-				}
-				console.log("POST::OUT");
-				return res.status(200).json({
-					status: "ok"
-				});
-			}
+		if(data){
+			let event = {
+				sender:  data.originalRequest.data.sender.id,
+				text: data.originalRequest.data.message.text,
+			};
+			facebookBot.processMessageEvent(event);
 		}
-		catch (err) {
-			return res.status(400).json({
-				status: "error",
-				error: err
+
+		if (data.entry) {
+			let entries = data.entry;
+			entries.forEach((entry) => {
+				let messaging_events = entry.messaging;
+				if (messaging_events) {
+					messaging_events.forEach((event) => {
+						if (event.message && !event.message.is_echo) {
+
+							if (event.message.attachments) {
+								let locations = event.message.attachments.filter(a => a.type === "location");
+
+								// delete all locations from original message
+								event.message.attachments = event.message.attachments.filter(a => a.type !== "location");
+
+								if (locations.length > 0) {
+									locations.forEach(l => {
+										let locationEvent = {
+											sender: event.sender,
+											postback: {
+												payload: "FACEBOOK_LOCATION",
+												data: l.payload.coordinates
+											}
+										};
+
+										facebookBot.processFacebookEvent(locationEvent);
+									});
+								}
+							}
+
+							facebookBot.processMessageEvent(event);
+						} else if (event.postback && event.postback.payload) {
+							if (event.postback.payload === "FACEBOOK_WELCOME") {
+								facebookBot.processFacebookEvent(event);
+							} else {
+								facebookBot.processMessageEvent(event);
+							}
+						}
+					});
+				}
 			});
 		}
 
+		return res.status(200).json({
+			status: "ok"
+		});
+	} catch (err) {
+		return res.status(400).json({
+			status: "error",
+			error: err
+		});
 	}
-);
+
+});
 
 app.listen(REST_PORT, () => {
 	console.log('Rest service ready on port ' + REST_PORT);
