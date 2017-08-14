@@ -570,47 +570,47 @@ app.post('/webhook/', (req, res) => {
 			facebookBot.processMessageEvent(event);
 		}
 
-		if (data.entry) {
-			let entries = data.entry;
-			entries.forEach((entry) => {
-				let messaging_events = entry.messaging;
-				if (messaging_events) {
-					messaging_events.forEach((event) => {
-						if (event.message && !event.message.is_echo) {
-
-							if (event.message.attachments) {
-								let locations = event.message.attachments.filter(a => a.type === "location");
-
-								// delete all locations from original message
-								event.message.attachments = event.message.attachments.filter(a => a.type !== "location");
-
-								if (locations.length > 0) {
-									locations.forEach(l => {
-										let locationEvent = {
-											sender: event.sender,
-											postback: {
-												payload: "FACEBOOK_LOCATION",
-												data: l.payload.coordinates
-											}
-										};
-
-										facebookBot.processFacebookEvent(locationEvent);
-									});
-								}
-							}
-
-							facebookBot.processMessageEvent(event);
-						} else if (event.postback && event.postback.payload) {
-							if (event.postback.payload === "FACEBOOK_WELCOME") {
-								facebookBot.processFacebookEvent(event);
-							} else {
-								facebookBot.processMessageEvent(event);
-							}
-						}
-					});
-				}
-			});
-		}
+		// if (data.entry) {
+		// 	let entries = data.entry;
+		// 	entries.forEach((entry) => {
+		// 		let messaging_events = entry.messaging;
+		// 		if (messaging_events) {
+		// 			messaging_events.forEach((event) => {
+		// 				if (event.message && !event.message.is_echo) {
+		//
+		// 					if (event.message.attachments) {
+		// 						let locations = event.message.attachments.filter(a => a.type === "location");
+		//
+		// 						// delete all locations from original message
+		// 						event.message.attachments = event.message.attachments.filter(a => a.type !== "location");
+		//
+		// 						if (locations.length > 0) {
+		// 							locations.forEach(l => {
+		// 								let locationEvent = {
+		// 									sender: event.sender,
+		// 									postback: {
+		// 										payload: "FACEBOOK_LOCATION",
+		// 										data: l.payload.coordinates
+		// 									}
+		// 								};
+		//
+		// 								facebookBot.processFacebookEvent(locationEvent);
+		// 							});
+		// 						}
+		// 					}
+		//
+		// 					facebookBot.processMessageEvent(event);
+		// 				} else if (event.postback && event.postback.payload) {
+		// 					if (event.postback.payload === "FACEBOOK_WELCOME") {
+		// 						facebookBot.processFacebookEvent(event);
+		// 					} else {
+		// 						facebookBot.processMessageEvent(event);
+		// 					}
+		// 				}
+		// 			});
+		// 		}
+		// 	});
+		// }
 
 		return res.status(200).json({
 			status: "ok"
