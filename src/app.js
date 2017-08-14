@@ -333,7 +333,7 @@ class FacebookBot {
 				(userInfo)=> {
 					userInfo = JSON.parse(userInfo);
 					//send user's text to api.ai service
-					let apiaiRequest = this.apiAiService.textRequest(text,
+					let apiaiRequest = this.apiAiService.eventRequest(text,
 						{
 							sessionId: this.sessionIds.get(sender),
 							originalRequest: {
@@ -390,12 +390,12 @@ class FacebookBot {
 				else if (this.isDefined(responseText)) {
 					this.doTextResponse(sender, responseText);
 				}
-
 			}
 		});
 
 		apiaiRequest.on('error', (error) => console.error(error));
 		apiaiRequest.end();
+
 	}
 
 	splitResponse(str) {
@@ -496,6 +496,23 @@ class FacebookBot {
 			});
 	}
 
+	doGetStartButton() {
+		request({
+				method: 'GET',
+				uri: `https://graph.facebook.com/v2.6/me/messenger_profile?access_token=${FB_PAGE_ACCESS_TOKEN}`,
+				json: {
+					payload: 'https://test-for-fb-api.herokuapp.com/get_starter/',
+				}
+			},
+			(error, response, body) => {
+				if (error) {
+					console.error('Error while subscription: ', error);
+				} else {
+					console.log('GetStartButton result: ', JSON.stringify(response));
+				}
+			});
+	}
+
 	configureGetStartedEvent() {
 		request({
 				method: 'POST',
@@ -546,6 +563,20 @@ const app = express();
 
 app.use(bodyParser.text({type: 'application/json'}));
 
+app.get('/get_starter/', (req, res) => {
+	try {
+		console.log("REQUEST FROM GET STARTED::"+JSON.stringify(req));
+		return res.status(200).json({
+			status: "ok"
+		});
+	} catch (err) {
+		return res.status(400).json({
+			status: "error",
+			error: err
+		});
+	}
+});
+
 app.get('/webhook/', (req, res) => {
 	if (req.query['hub.verify_token'] === FB_VERIFY_TOKEN) {
 		res.send(req.query['hub.challenge']);
@@ -562,7 +593,7 @@ app.post('/webhook/', (req, res) => {
 	try {
 		const data = JSONbig.parse(req.body);
 		console.log("DATA::"+JSON.stringify(data));
-		if(data){
+		if(data && data.originalRequest && data.originalRequest.data){
 			let event = {
 				sender:  data.originalRequest.data.sender.id,
 				text: data.originalRequest.data.message.text,
@@ -611,10 +642,6 @@ app.post('/webhook/', (req, res) => {
 		// 		}
 		// 	});
 		// }
-
-		return res.status(200).json({
-			status: "ok"
-		});
 	} catch (err) {
 		return res.status(400).json({
 			status: "error",
@@ -629,3 +656,4 @@ app.listen(REST_PORT, () => {
 });
 
 facebookBot.doSubscribeRequest();
+facebookBot.doGetStartButton();
