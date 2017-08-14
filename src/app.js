@@ -561,7 +561,7 @@ app.get('/webhook/', (req, res) => {
 app.post('/webhook/', (req, res) => {
 	try {
 		const data = JSONbig.parse(req.body);
-
+		console.log("DATA::"+JSON.stringify(data));
 		if(data){
 			let event = {
 				sender:  data.originalRequest.data.sender.id,
